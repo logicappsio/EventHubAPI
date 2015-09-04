@@ -43,11 +43,21 @@ namespace EventHubAPIApp.Controllers
         /// <param name="hubName"></param>
         /// <param name="message"></param>
         /// <returns></returns>
-        [Metadata("Send Event to Event Hub")]
-        public HttpResponseMessage EventHubSend([Metadata("Connection String")]string connectionString, [Metadata("Event Hub Name")]string hubName, [Metadata("Message")]JToken message)
+        [Metadata("Send Object to Event Hub")]
+        [Route("SendJSON")]
+        public async Task<HttpResponseMessage> EventHubSend([Metadata("Connection String")]string connectionString, [Metadata("Event Hub Name")]string hubName, [FromBody][Metadata("JSON Message")]JToken message)
         {
             var client = EventHubClient.CreateFromConnectionString(connectionString, hubName);
             client.Send(new EventData(Encoding.UTF8.GetBytes(message.ToString())));
+            return Request.CreateResponse(System.Net.HttpStatusCode.OK, message);
+        }
+
+        [Metadata("Send String to Event Hub")]
+        [Route("SendString")]
+        public async Task<HttpResponseMessage> EventHubSend([Metadata("Connection String")]string connectionString, [Metadata("Event Hub Name")]string hubName, [FromBody][Metadata("String Message")]string message)
+        {
+            var client = EventHubClient.CreateFromConnectionString(connectionString, hubName);
+            client.Send(new EventData(Encoding.UTF8.GetBytes(message)));
             return Request.CreateResponse(System.Net.HttpStatusCode.OK, message);
         }
 

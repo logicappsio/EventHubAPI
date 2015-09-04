@@ -3,6 +3,8 @@ using WebActivatorEx;
 using EventHubAPIApp;
 using Swashbuckle.Application;
 using TRex.Metadata;
+using Swashbuckle.Swagger;
+using System.Web.Http.Description;
 
 [assembly: PreApplicationStartMethod(typeof(SwaggerConfig), "Register")]
 
@@ -10,6 +12,9 @@ namespace EventHubAPIApp
 {
     public class SwaggerConfig
     {
+        /// <summary>
+        /// This is MOSTLY the default swashbuckle but I do create a custom document filter to add additional properties onto my object so I can pass in an object
+        /// </summary>
         public static void Register()
         {
             var thisAssembly = typeof(SwaggerConfig).Assembly;
@@ -35,6 +40,7 @@ namespace EventHubAPIApp
                         //
                         c.SingleApiVersion("v1", "EventHubAPIApp");
                         c.ReleaseTheTRex();
+                        c.DocumentFilter<CustomDocumentFilter>();
 
                         // If your API has multiple versions, use "MultipleApiVersions" instead of "SingleApiVersion".
                         // In this case, you must provide a lambda that tells Swashbuckle which actions should be
@@ -217,5 +223,15 @@ namespace EventHubAPIApp
                         //c.EnableOAuth2Support("test-client-id", "test-realm", "Swagger UI");
                     });
         }
+
+        internal class CustomDocumentFilter : IDocumentFilter
+        {
+            public void Apply(SwaggerDocument swaggerDoc, SchemaRegistry schemaRegistry, IApiExplorer apiExplorer)
+            {
+                swaggerDoc.definitions["Object"].vendorExtensions["additionalProperties"] = true;
+
+            }
+        }
+
     }
 }
