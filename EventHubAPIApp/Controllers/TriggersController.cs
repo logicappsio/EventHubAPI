@@ -10,6 +10,7 @@ using System.Text;
 using Newtonsoft.Json.Linq;
 using TRex.Metadata;
 using System.Diagnostics;
+using System.ComponentModel.DataAnnotations;
 
 namespace EventHubAPIApp.Controllers
 {
@@ -223,10 +224,11 @@ namespace EventHubAPIApp.Controllers
         public class EventHubActionMessage
         {
             [Metadata("Event Hub Name", null)]
+            [Required(AllowEmptyStrings = false)]
             public string hubName { get; set; }
-
             [Metadata("Message Properties", "Object of Key/Value Properties for message", VisibilityType.Advanced)]
             public string propertiesString { get; set; }
+            
             [Metadata("Message", null)]
             public string message { get; set; }
             [Metadata("Partition Key", null, VisibilityType.Advanced)]
