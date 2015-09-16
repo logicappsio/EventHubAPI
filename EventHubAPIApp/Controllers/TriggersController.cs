@@ -9,6 +9,7 @@ using System.Web.Hosting;
 using System.Text;
 using Newtonsoft.Json.Linq;
 using TRex.Metadata;
+using System.Diagnostics;
 
 namespace EventHubAPIApp.Controllers
 {
@@ -36,29 +37,50 @@ namespace EventHubAPIApp.Controllers
             return this.Request.PushTriggerRegistered(triggerInput.GetCallback());
         }
 
-        /// <summary>
-        /// Method to send an event to an event hub given the connection string and message.  Returns an "OK" when sent with a copy of the message.
-        /// </summary>
-        /// <param name="connectionString"></param>
-        /// <param name="hubName"></param>
-        /// <param name="message"></param>
-        /// <returns></returns>
-        [Metadata("Send Object to Event Hub")]
-        [Route("SendJSON")]
-        public async Task<HttpResponseMessage> EventHubSend([Metadata("Connection String")]string connectionString, [Metadata("Event Hub Name")]string hubName, [FromBody][Metadata("JSON Message")]JObject message)
-        {
-            var client = EventHubClient.CreateFromConnectionString(connectionString, hubName);
-            client.Send(new EventData(Encoding.UTF8.GetBytes(message.ToString())));
-            return Request.CreateResponse(System.Net.HttpStatusCode.OK, message);
-        }
+        
 
-        [Metadata("Send String to Event Hub")]
+        [Metadata("Send Message to Event Hub")]
+        [Swashbuckle.Swagger.Annotations.SwaggerResponse(System.Net.HttpStatusCode.OK, "Message Data", typeof(EventData))]
         [Route("SendString")]
-        public async Task<HttpResponseMessage> EventHubSend([Metadata("Connection String")]string connectionString, [Metadata("Event Hub Name")]string hubName, [FromBody][Metadata("String Message")]string message)
+        public HttpResponseMessage EventHubSend([Metadata("Connection String")]string connectionString, [FromBody]EventHubActionMessage input)
         {
-            var client = EventHubClient.CreateFromConnectionString(connectionString, hubName);
-            client.Send(new EventData(Encoding.UTF8.GetBytes(message)));
-            return Request.CreateResponse(System.Net.HttpStatusCode.OK, message);
+                     
+            var client = EventHubClient.CreateFromConnectionString(connectionString, input.hubName);
+            string message = input.message;
+            var bodyBytes = Encoding.UTF8.GetBytes(message);
+            var eventMessage = new EventData(bodyBytes);
+            eventMessage.PartitionKey = string.IsNullOrEmpty(input.partitionKey) ? eventMessage.PartitionKey : input.partitionKey;
+            var properties = JObject.Parse(input.propertiesString);
+            foreach (var property in properties)
+            {
+                
+                switch (property.Value.Type.ToString())
+                {
+                    case "Boolean":
+                        eventMessage.Properties[property.Key] = (bool)property.Value;
+                        break;
+                    case "String":
+                        eventMessage.Properties[property.Key] = (string)property.Value;
+                        break;
+                    case "DateTime":
+                        eventMessage.Properties[property.Key] = (DateTime)property.Value;
+                        break;
+                    case "Int64":
+                        eventMessage.Properties[property.Key] = (int)property.Value;
+                        break;
+                    case "Decimal":
+                        eventMessage.Properties[property.Key] = (decimal)property.Value;
+                        break;
+                    case "Double":
+                        eventMessage.Properties[property.Key] = (double)property.Value;
+                        break;
+                    default:
+                        eventMessage.Properties[property.Key] = (string)property.Value;
+                        break;
+                }
+            }
+            client.Send(eventMessage);
+            return Request.CreateResponse(System.Net.HttpStatusCode.OK, eventMessage);
         }
 
         /// <summary>
@@ -198,6 +220,22 @@ namespace EventHubAPIApp.Controllers
             }
         }
 
+        public class EventHubActionMessage
+        {
+            [Metadata("Event Hub Name", null)]
+            public string hubName { get; set; }
+
+            [Metadata("Message Properties", "Object of Key/Value Properties for message", VisibilityType.Advanced)]
+            public string propertiesString { get; set; }
+            [Metadata("Message", null)]
+            public string message { get; set; }
+            [Metadata("Partition Key", null, VisibilityType.Advanced)]
+            public string partitionKey { get; set; }
+
+        }
+
+
+
         public class EventHubInput
         {
             [Metadata("Connection String")]
@@ -210,4 +248,22 @@ namespace EventHubAPIApp.Controllers
             public string consumerGroup { get; set; }
         }
     }
+
+
+    ///DEMOTED
+    /// <summary>
+    /// Method to send an event to an event hub given the connection string and message.  Returns an "OK" when sent with a copy of the message.
+    /// </summary>
+    /// <param name="connectionString"></param>
+    /// <param name="hubName"></param>
+    /// <param name="message"></param>
+    /// <returns></returns>
+    //[Metadata("Send Object to Event Hub")]
+    //[Route("SendJSON")]
+    //public async Task<HttpResponseMessage> EventHubSend([Metadata("Connection String")]string connectionString, [Metadata("Event Hub Name")]string hubName, [FromBody][Metadata("JSON Message")]JObject message)
+    //{
+    //    var client = EventHubClient.CreateFromConnectionString(connectionString, hubName);
+    //    client.Send(new EventData(Encoding.UTF8.GetBytes(message.ToString())));
+    //    return Request.CreateResponse(System.Net.HttpStatusCode.OK, message);
+    //}
 }
