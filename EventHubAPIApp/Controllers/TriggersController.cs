@@ -51,33 +51,37 @@ namespace EventHubAPIApp.Controllers
             var bodyBytes = Encoding.UTF8.GetBytes(message);
             var eventMessage = new EventData(bodyBytes);
             eventMessage.PartitionKey = string.IsNullOrEmpty(input.partitionKey) ? eventMessage.PartitionKey : input.partitionKey;
-            var properties = JObject.Parse(input.propertiesString);
-            foreach (var property in properties)
+
+            if (!string.IsNullOrEmpty(input.propertiesString))
             {
-                
-                switch (property.Value.Type.ToString())
+                var properties = JObject.Parse(input.propertiesString);
+                foreach (var property in properties)
                 {
-                    case "Boolean":
-                        eventMessage.Properties[property.Key] = (bool)property.Value;
-                        break;
-                    case "String":
-                        eventMessage.Properties[property.Key] = (string)property.Value;
-                        break;
-                    case "DateTime":
-                        eventMessage.Properties[property.Key] = (DateTime)property.Value;
-                        break;
-                    case "Int64":
-                        eventMessage.Properties[property.Key] = (int)property.Value;
-                        break;
-                    case "Decimal":
-                        eventMessage.Properties[property.Key] = (decimal)property.Value;
-                        break;
-                    case "Double":
-                        eventMessage.Properties[property.Key] = (double)property.Value;
-                        break;
-                    default:
-                        eventMessage.Properties[property.Key] = (string)property.Value;
-                        break;
+
+                    switch (property.Value.Type.ToString())
+                    {
+                        case "Boolean":
+                            eventMessage.Properties[property.Key] = (bool)property.Value;
+                            break;
+                        case "String":
+                            eventMessage.Properties[property.Key] = (string)property.Value;
+                            break;
+                        case "DateTime":
+                            eventMessage.Properties[property.Key] = (DateTime)property.Value;
+                            break;
+                        case "Int64":
+                            eventMessage.Properties[property.Key] = (int)property.Value;
+                            break;
+                        case "Decimal":
+                            eventMessage.Properties[property.Key] = (decimal)property.Value;
+                            break;
+                        case "Double":
+                            eventMessage.Properties[property.Key] = (double)property.Value;
+                            break;
+                        default:
+                            eventMessage.Properties[property.Key] = (string)property.Value;
+                            break;
+                    }
                 }
             }
             client.Send(eventMessage);
