@@ -25,10 +25,12 @@ The push trigger has the following inputs
 The push trigger will return the message as `@triggers().outputs.body`.  It is returned as a JToken, so you can parse through the JSON like `@triggers().outputs.body.id`.
 
 ### Send Message Action ###
-The push trigger has the following inputs
+The push trigger has the following inputs.  It returns an [EventData object](https://msdn.microsoft.com/en-us/library/microsoft.servicebus.messaging.eventdata.aspx)
 
 | Input | Description |
 | ----- | ----- |
 | Connection String | The connection string to access the event hub. |
 | Event Hub Name | Name of the event hub (e.g. `myeventhub` ) |
 | Message | The message to send |
+| Message Properties | The custom properties for the event hub message.  Should be a JSON Object (e.g. `{"foo": "bar", "awesome": true }` |
+| Partition Key | Partition Key for the event hub message |
