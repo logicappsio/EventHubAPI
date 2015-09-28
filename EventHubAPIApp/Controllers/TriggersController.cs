@@ -11,6 +11,7 @@ using Newtonsoft.Json.Linq;
 using TRex.Metadata;
 using System.Diagnostics;
 using System.ComponentModel.DataAnnotations;
+using System.Net;
 
 namespace EventHubAPIApp.Controllers
 {
@@ -41,51 +42,62 @@ namespace EventHubAPIApp.Controllers
         
 
         [Metadata("Send Message to Event Hub")]
+        [Swashbuckle.Swagger.Annotations.SwaggerResponse(HttpStatusCode.BadRequest, "An exception occured", typeof(Exception))]
         [Swashbuckle.Swagger.Annotations.SwaggerResponse(System.Net.HttpStatusCode.OK, "Message Data", typeof(EventData))]
         [Route("SendString")]
         public HttpResponseMessage EventHubSend([Metadata("Connection String")]string connectionString, [FromBody]EventHubActionMessage input)
         {
-                     
-            var client = EventHubClient.CreateFromConnectionString(connectionString, input.hubName);
-            string message = input.message;
-            var bodyBytes = Encoding.UTF8.GetBytes(message);
-            var eventMessage = new EventData(bodyBytes);
-            eventMessage.PartitionKey = string.IsNullOrEmpty(input.partitionKey) ? eventMessage.PartitionKey : input.partitionKey;
+            try {
 
-            if (!string.IsNullOrEmpty(input.propertiesString))
-            {
-                var properties = JObject.Parse(input.propertiesString);
-                foreach (var property in properties)
+                var client = EventHubClient.CreateFromConnectionString(connectionString, input.hubName);
+                string message = input.message;
+                var bodyBytes = Encoding.UTF8.GetBytes(message);
+                var eventMessage = new EventData(bodyBytes);
+                eventMessage.PartitionKey = string.IsNullOrEmpty(input.partitionKey) ? eventMessage.PartitionKey : input.partitionKey;
+
+                if (!string.IsNullOrEmpty(input.propertiesString))
                 {
-
-                    switch (property.Value.Type.ToString())
+                    var properties = JObject.Parse(input.propertiesString);
+                    foreach (var property in properties)
                     {
-                        case "Boolean":
-                            eventMessage.Properties[property.Key] = (bool)property.Value;
-                            break;
-                        case "String":
-                            eventMessage.Properties[property.Key] = (string)property.Value;
-                            break;
-                        case "DateTime":
-                            eventMessage.Properties[property.Key] = (DateTime)property.Value;
-                            break;
-                        case "Int64":
-                            eventMessage.Properties[property.Key] = (int)property.Value;
-                            break;
-                        case "Decimal":
-                            eventMessage.Properties[property.Key] = (decimal)property.Value;
-                            break;
-                        case "Double":
-                            eventMessage.Properties[property.Key] = (double)property.Value;
-                            break;
-                        default:
-                            eventMessage.Properties[property.Key] = (string)property.Value;
-                            break;
+
+                        switch (property.Value.Type.ToString())
+                        {
+                            case "Boolean":
+                                eventMessage.Properties[property.Key] = (bool)property.Value;
+                                break;
+                            case "String":
+                                eventMessage.Properties[property.Key] = (string)property.Value;
+                                break;
+                            case "DateTime":
+                                eventMessage.Properties[property.Key] = (DateTime)property.Value;
+                                break;
+                            case "Int64":
+                                eventMessage.Properties[property.Key] = (int)property.Value;
+                                break;
+                            case "Decimal":
+                                eventMessage.Properties[property.Key] = (decimal)property.Value;
+                                break;
+                            case "Double":
+                                eventMessage.Properties[property.Key] = (double)property.Value;
+                                break;
+                            default:
+                                eventMessage.Properties[property.Key] = (string)property.Value;
+                                break;
+                        }
                     }
                 }
+                client.Send(eventMessage);
+                return Request.CreateResponse(System.Net.HttpStatusCode.OK, eventMessage);
             }
-            client.Send(eventMessage);
-            return Request.CreateResponse(System.Net.HttpStatusCode.OK, eventMessage);
+            catch(NullReferenceException ex)
+            {
+                return Request.CreateErrorResponse(HttpStatusCode.BadRequest, @"The input recieved by the API was null.  This sometimes happens if the message in the Logic App is malformed.  Check the message to make sure there are no escape characters like '\'.", ex);
+            }
+            catch(Exception ex)
+            {
+                return Request.CreateErrorResponse(HttpStatusCode.BadRequest, ex);
+            }
         }
 
         /// <summary>
