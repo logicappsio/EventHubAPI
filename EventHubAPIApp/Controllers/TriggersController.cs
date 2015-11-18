@@ -43,7 +43,7 @@ namespace EventHubAPIApp.Controllers
 
         [Metadata("Send Message to Event Hub")]
         [Swashbuckle.Swagger.Annotations.SwaggerResponse(HttpStatusCode.BadRequest, "An exception occured", typeof(Exception))]
-        [Swashbuckle.Swagger.Annotations.SwaggerResponse(System.Net.HttpStatusCode.OK, "Message Data", typeof(EventData))]
+        [Swashbuckle.Swagger.Annotations.SwaggerResponse(System.Net.HttpStatusCode.Created)]
         [Route("SendString")]
         public HttpResponseMessage EventHubSend([Metadata("Connection String")]string connectionString, [FromBody]EventHubActionMessage input)
         {
@@ -88,7 +88,7 @@ namespace EventHubAPIApp.Controllers
                     }
                 }
                 client.Send(eventMessage);
-                return Request.CreateResponse(System.Net.HttpStatusCode.OK, eventMessage);
+                return Request.CreateResponse(System.Net.HttpStatusCode.Created);
             }
             catch(NullReferenceException ex)
             {
