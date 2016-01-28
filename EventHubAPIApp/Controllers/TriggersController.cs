@@ -215,7 +215,7 @@ namespace EventHubAPIApp.Controllers
                         {
                             var info = message.GetBytes();
                             var msg = UnicodeEncoding.UTF8.GetString(info);
-                            MessageReceived(this, new EventHubMessage(JObject.Parse(msg)));
+                            MessageReceived(this, new EventHubMessage(JToken.Parse(msg)));
                         }
                     }
                     catch (Exception ex)
