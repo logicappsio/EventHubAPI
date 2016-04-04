@@ -1,15 +1,8 @@
 {
-  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json",
   "contentVersion": "1.0.0.0",
   "parameters": {
     "siteName": {
-      "type": "string"
-    },
-    "apiAppName": {
-      "type": "string",
-      "defaultValue": "EventHubAPI"
-    },
-    "gatewayName": {
       "type": "string"
     },
     "repoURL": {
@@ -39,247 +32,75 @@
         "1",
         "2"
       ]
-    },
-    "gatewayToApiAppSecret": {
-      "defaultValue": "RXZlbnRIdWJBUElBcHA=",
-      "type": "securestring"
     }
   },
-  "variables": {
-    "$packageId": "Microsoft.ApiApp",
-    "$nugetFeed": "http://apiapps-preview.nuget.org/api/v2/"
-  },
-  "resources": [
-    {
-      "type": "Microsoft.Web/serverfarms",
-      "apiVersion": "2015-04-01",
-      "name": "[parameters('svcPlanName')]",
-      "location": "[resourceGroup().location]",
-      "tags": {
-        "displayName": "AppServicePlan"
-      },
-      "properties": {
+    "resources": [
+      {
+        "apiVersion": "2015-08-01",
         "name": "[parameters('svcPlanName')]",
-        "sku": "[parameters('sku')]",
-        "workerSize": "[parameters('svcPlanSize')]",
-        "numberOfWorkers": 1
-      }
-    },
-    {
-      "type": "Microsoft.Web/sites",
-      "apiVersion": "2015-04-01",
-      "name": "[parameters('gatewayName')]",
-      "location": "[resourceGroup().location]",
-      "kind": "gateway",
-      "tags": {
-        "displayName": "GatewayHost"
-      },
-      "resources": [
-        {
-          "type": "providers/links",
-          "apiVersion": "2015-01-01",
-          "name": "Microsoft.Resources/gateway",
-          "dependsOn": [
-            "[resourceId('Microsoft.Web/sites',parameters('gatewayName'))]"
-          ],
-          "properties": {
-            "targetId": "[resourceId('Microsoft.AppService/gateways', parameters('gatewayName'))]"
-          }
-        }
-      ],
-      "dependsOn": [
-        "[concat(resourceGroup().id, '/providers/Microsoft.Web/serverfarms/',parameters('svcPlanName'))]"
-      ],
-      "properties": {
-        "name": "[parameters('gatewayName')]",
-        "gatewaySiteName": "[parameters('gatewayName')]",
-        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('svcPlanName'))]",
-        "siteConfig": {
-          "appSettings": [
-            {
-              "name": "ApiAppsGateway_EXTENSION_VERSION",
-              "value": "latest"
-            },
-            {
-              "name": "EmaStorage",
-              "value": "D:\\home\\data\\apiapps"
-            },
-            {
-              "name": "WEBSITE_START_SCM_ON_SITE_CREATION",
-              "value": "1"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "type": "Microsoft.AppService/gateways",
-      "apiVersion": "2015-03-01-preview",
-      "name": "[parameters('gatewayName')]",
-      "location": "[resourceGroup().location]",
-      "tags": {
-        "displayName": "Gateway"
-      },
-      "resources": [
-        {
-          "type": "providers/links",
-          "apiVersion": "2015-01-01",
-          "name": "Microsoft.Resources/gatewaySite",
-          "dependsOn": [
-            "[resourceId('Microsoft.AppService/gateways',parameters('gatewayName'))]"
-          ],
-          "properties": {
-            "targetId": "[resourceId('Microsoft.Web/sites',parameters('gatewayName'))]"
-          }
+        "type": "Microsoft.Web/serverfarms",
+        "location": "[resourceGroup().location]",
+        "tags": {
+          "displayName": "HostingPlan"
         },
-          {
-          "type": "tokens",
-          "apiVersion": "2015-03-01-preview",
-          "location": "[resourceGroup().location]",
-          "name": "[parameters('apiAppName')]",
-          "tags": {
-            "displayName": "AuthenticationToken"
-          },
-          "dependsOn": [
-            "[resourceId('Microsoft.AppService/gateways', parameters('gatewayName'))]"
-          ]
+        "sku": {
+          "name": "[parameters('sku')]",
+          "capacity": "[parameters('svcPlanSize')]"
+        },
+        "properties": {
+          "name": "[parameters('svcPlanName')]"
         }
-
-      ],
-      "dependsOn": [
-        "[resourceId('Microsoft.Web/sites', parameters('gatewayName'))]"
-      ],
-      "properties": {
-        "host": {
-          "resourceName": "[parameters('gatewayName')]"
-        }
-      }
-    },
-    {
-      "type": "Microsoft.Web/sites",
-      "apiVersion": "2015-04-01",
-
-      "name": "[parameters('siteName')]",
-      "location": "[resourceGroup().location]",
-      "kind": "apiApp",
-      "tags": {
-        "displayName": "APIAppHost"
       },
-      "dependsOn": [
-        "[resourceId('Microsoft.AppService/gateways', parameters('gatewayName'))]"
-      ],
-      "resources": [
-        {
-          "type": "siteextensions",
-          "tags": {
-            "displayName": "APIAppExtension"
-          },
-          "apiVersion": "2015-04-01",
-          "name": "[variables('$packageId')]",
-          "dependsOn": [
-
-            "[resourceId('Microsoft.Web/sites', parameters('siteName'))]"
-          ],
-          "properties": {
-            "type": "WebRoot",
-            "feed_url": "[variables('$nugetFeed')]"
-          }
-        },
-        {
-          "type": "providers/links",
-          "apiVersion": "2015-01-01",
-          "name": "Microsoft.Resources/apiApp",
-          "dependsOn": [
-            "[resourceId('Microsoft.Web/sites', parameters('siteName'))]"
-          ],
-          "properties": {
-            "targetId": "[resourceId('Microsoft.AppService/apiapps', parameters('apiAppName'))]"
-          }
-        },
-
-        {
-          "apiVersion": "2015-04-01",
-          "name": "web",
-          "type": "sourcecontrols",
-          "dependsOn": [
-            "[resourceId('Microsoft.Web/Sites', parameters('siteName'))]"
-          ],
-          "properties": {
-            "RepoUrl": "[parameters('repoURL')]",
-            "branch": "[parameters('branch')]",
-            "IsManualIntegration": true
-          }
-        }
-
-
-      ],
-      "properties": {
+      {
+        "apiVersion": "2015-08-01",
+        "dependsOn": [
+          "[concat('Microsoft.Web/serverfarms/', parameters('svcPlanName'))]"
+        ],
+        "kind": "api",
+        "location": "[resourceGroup().location]",
         "name": "[parameters('siteName')]",
-        "gatewaySiteName": "[parameters('gatewayName')]",
-        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('svcPlanName'))]",
-        "siteConfig": {
-          "appSettings": [
-            {
-              "name": "EMA_MicroserviceId",
-              "value": "[parameters('apiAppName')]"
+        "properties": {
+          "name": "[parameters('siteName')]",
+          "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('svcPlanName'))]"
+        },
+        "resources": [
+          {
+            "apiVersion": "2015-08-01",
+            "dependsOn": [
+              "[resourceId('Microsoft.Web/Sites', parameters('siteName'))]"
+            ],
+            "name": "web",
+            "properties": {
+              "RepoUrl": "[parameters('repoURL')]",
+              "branch": "[parameters('branch')]",
+              "IsManualIntegration": true
             },
-            {
-              "name": "EMA_Secret",
-              "value": "[parameters('gatewayToAPIappSecret')]"
+            "type": "sourcecontrols"
+          },
+          {
+            "apiVersion": "2015-08-01",
+            "dependsOn": [
+              "[resourceId('Microsoft.Web/Sites', parameters('siteName'))]"
+            ],
+            "name": "web",
+            "properties": {
+              "apiDefinition": {
+                "url": "[concat('https://', parameters('siteName'), '.azurewebsites.net/swagger/docs/v1')]"
+              },
+              "cors": {
+                "allowedOrigins": [
+                  "*"
+                ]
+              }
             },
-            {
-              "name": "EMA_RuntimeUrl",
-              "value": "[concat('https://', reference(resourceId('Microsoft.Web/sites', parameters('gatewayName'))).hostNames[0])]"
-            },
-            {
-              "name": "WEBSITE_START_SCM_ON_SITE_CREATION",
-              "value": "1"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "type": "Microsoft.AppService/apiapps",
-      "apiVersion": "2015-03-01-preview",
-      "name": "[parameters('apiAppName')]",
-      "location": "[resourceGroup().location]",
-      "tags": {
-        "displayName": "APIApp"
-      },
-      "resources": [
-        {
-          "type": "providers/links",
-          "apiVersion": "2015-01-01",
-          "name": "Microsoft.Resources/apiAppSite",
-          "dependsOn": [
-            "[resourceId('Microsoft.AppService/apiapps', parameters('apiAppName'))]"
-          ],
-          "properties": {
-
-            "targetId": "[resourceId('Microsoft.Web/sites', parameters('siteName'))]"
+            "type": "config"
           }
-        }
-      ],
-      "dependsOn": [
-
-        "[resourceId('Microsoft.Web/sites/siteextensions', parameters('siteName'), 'Microsoft.ApiApp')]"
-      ],
-      "properties": {
-        "package": {
-          "id": "Microsoft.ApiApp"
+        ],
+        "tags": {
+          "[concat('hidden-related:', resourceGroup().id, '/providers/Microsoft.Web/serverfarms/', parameters('svcPlanName'))]": "Resource",
+          "displayName": "Website"
         },
-        "accessLevel" : "PublicAnonymous",
-        "host": {
-  
-          "resourceName": "[parameters('siteName')]"
-        },
-        "gateway": {
-          "resourceName": "[parameters('gatewayName')]"
-        },
-        "dependencies": [ ]
+        "type": "Microsoft.Web/sites"
       }
-    }
-   
-  ]
-}
+    ]
+  }
