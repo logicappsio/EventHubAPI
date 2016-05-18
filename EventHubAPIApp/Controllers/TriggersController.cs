@@ -1,17 +1,18 @@
-﻿using Microsoft.Azure.AppService.ApiApps.Service;
+﻿using EventHubAPIApp.Models;
 using Microsoft.ServiceBus.Messaging;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
-using System.Web.Http;
+using System.Net.Http.Formatting;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Hosting;
-using System.Text;
-using Newtonsoft.Json.Linq;
+using System.Web.Http;
 using TRex.Metadata;
-using System.Diagnostics;
-using System.ComponentModel.DataAnnotations;
-using System.Net;
 
 namespace EventHubAPIApp.Controllers
 {
@@ -21,33 +22,204 @@ namespace EventHubAPIApp.Controllers
     /// </summary>
     public class TriggersController : ApiController
     {
+        #region Trigger - Receive message
         /// <summary>
-        /// Main Event Hub Push trigger
+        /// Receive a subscription to a webhook.  
         /// </summary>
-        /// <param name="triggerId">Passed in via Logic Apps to identify the Logic App needing the push notification</param>
-        /// <param name="triggerInput">Item that includes trigger inputs like Event Hub parameters</param>
         /// <returns></returns>
-        [Trigger(TriggerType.Push, typeof(EventHubMessage))]
-        [Metadata("Receive Event Hub Message")]
-        [HttpPut, Route("{triggerId}")]
-        public HttpResponseMessage EventHubPushTrigger(string triggerId, [FromBody]TriggerInput<EventHubInput, EventHubMessage> triggerInput)
+        [HttpPost, Route("Subscribe")]
+        public HttpResponseMessage Subscribe([FromBody] EventHubInput input)
         {
-            if (!InMemoryTriggerStore.Instance.GetStore().ContainsKey(triggerId))
+            if (!String.IsNullOrEmpty(input.callbackUrl))
             {
-                HostingEnvironment.QueueBackgroundWorkItem(async ct => await InMemoryTriggerStore.Instance.RegisterTrigger(triggerId, triggerInput));
+                if (!InMemoryTriggerStore.Instance.GetStore().ContainsKey(input.callbackUrl))
+                {
+                    HostingEnvironment.QueueBackgroundWorkItem(async ct => await InMemoryTriggerStore.Instance.RegisterTrigger(input));
+                }
             }
-            return this.Request.PushTriggerRegistered(triggerInput.GetCallback());
+            return Request.CreateResponse();
         }
 
-        
+        /// <summary>
+        /// Unsubscribe
+        /// </summary>
+        /// <param name="callbackUrl"></param>
+        /// <returns></returns>
+        [HttpPost, Route("Unsubscribe")]
+        public HttpResponseMessage Unsubscribe([FromBody] UnsubscribeMessage message)
+        {
+            if (!String.IsNullOrEmpty(message.callbackUrl))
+            {
+                if (InMemoryTriggerStore.Instance.GetStore().ContainsKey(message.callbackUrl))
+                {
+                    InMemoryTriggerStore.Instance.UnregisterTrigger(message.callbackUrl);
+                }
+            }
+            return Request.CreateResponse();
+        }
 
+        /// <summary>
+        /// Class for the InMemoryTriggerStore.  How the Logic App works, it will call the PUSH trigger endpoint with the triggerID and CallBackURL - it is the job
+        /// of the API App to then call the CallbackURL when an event happens.  I utilize this InMemoryTriggerStore to store the triggers I am watching, so that I don't
+        /// continue to spin up new listeners whenever the Logic App asks me to register a trigger.
+        /// 
+        /// If the API App was ever to reset or lose connection, I would know I need to register new Event Hub Listeners as the InMemoryTriggerStore would be empty.
+        /// </summary>
+        public class InMemoryTriggerStore
+        {
+            private static InMemoryTriggerStore instance;
+            private IDictionary<string, List<CancellationTokenSource>> _store;
+            private InMemoryTriggerStore()
+            {
+                _store = new Dictionary<string, List<CancellationTokenSource>>();
+            }
+
+            public IDictionary<string, List<CancellationTokenSource>> GetStore()
+            {
+                return _store;
+            }
+
+            public static InMemoryTriggerStore Instance
+            {
+                get
+                {
+                    if (instance == null)
+                    {
+                        instance = new InMemoryTriggerStore();
+                    }
+                    return instance;
+                }
+            }
+
+            /// <summary>
+            /// The method that registers Event Hub listeners and assigns them to a Receive event.  When I receive an event from the event hub listener, I trigger the callbackURL
+            /// </summary>
+            /// <param name="triggerId"></param>
+            /// <param name="triggerInput"></param>
+            public async Task RegisterTrigger(EventHubInput input)
+            {
+                var client = EventHubClient.CreateFromConnectionString(input.eventHubConnectionString, input.eventHubName);
+
+                EventHubConsumerGroup group = String.IsNullOrEmpty(input.consumerGroup) ?
+                    client.GetDefaultConsumerGroup() : client.GetConsumerGroup(input.consumerGroup);
+
+                string[] partitions;
+
+                //If they specified partitions, iterate over their list to only listen to the partitions they specified
+                if (!String.IsNullOrEmpty(input.eventHubPartitionList))
+                {
+                    partitions = input.eventHubPartitionList.Split(',');
+                }
+
+                //If they left it blank, create a list to listen to all partitions
+                else
+                {
+                    partitions = new string[client.GetRuntimeInformation().PartitionCount];
+                    for (int x = 0; x < partitions.Length; x++)
+                    {
+                        partitions[x] = x.ToString();
+                    }
+                }
+
+                List<CancellationTokenSource> tokenSources = new List<CancellationTokenSource>();
+
+                //For ever partition I should listen to, create a thread with a listener on it
+                foreach (var p in partitions)
+                {
+                    p.Trim();
+                    var Receiver = group.CreateReceiver(client.GetRuntimeInformation().PartitionIds[int.Parse(p)], DateTime.UtcNow);
+                    EventHubListener listener = new EventHubListener(Receiver);
+
+                    //Register the event.  When I Receive a message, call the method to trigger the logic app
+                    listener.MessageReceived += (sender, e) => TriggerLogicApps(input.callbackUrl, e);
+
+                    var ts = new CancellationTokenSource();
+                    CancellationToken ct = ts.Token;
+                    listener.StartListening(ct);
+
+                    tokenSources.Add(ts);
+                }
+
+                //Register the triggerID in my store, so on subsequent checks from the logic app I don't spin up a new set of listeners
+                _store[input.callbackUrl] = tokenSources;
+            }
+
+            public async void TriggerLogicApps(string callbackUrl, JToken message)
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    await client.PostAsync(callbackUrl, message, new JsonMediaTypeFormatter(), "application/json");
+                }
+            }
+
+            public void UnregisterTrigger(string callbackUrl)
+            {
+                List<CancellationTokenSource> tokenSources = _store[callbackUrl];
+
+                foreach (var ts in tokenSources)
+                {
+                    ts.Cancel();
+                }
+
+                _store[callbackUrl] = null; // Drop references to EventhubListeners. They will be GC'ed later.
+            }
+        }
+
+        /// <summary>
+        /// Event Hub Listener class.  Keeps track of the receiver, and converts the message to a JOBject when Received
+        /// </summary>
+        public class EventHubListener
+        {
+            private EventHubReceiver receiver;
+
+            public EventHubListener(EventHubReceiver receiver)
+            {
+                this.receiver = receiver;
+            }
+
+            public event EventHandler<JToken> MessageReceived;
+
+            public async Task StartListening(CancellationToken token)
+            {
+                while (true)
+                {
+                    string messageString = String.Empty;
+
+                    try
+                    {
+                        if (token.IsCancellationRequested)
+                        {
+                            return;
+                        }
+
+                        var eventData = await receiver.ReceiveAsync(new TimeSpan(1, 0, 0));
+                        if (eventData != null)
+                        {
+                            var info = eventData.GetBytes();
+                            messageString = UnicodeEncoding.UTF8.GetString(info);
+                            MessageReceived(this, JToken.Parse(messageString));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Trace.TraceError(String.Format("Error: {0} while processing message: {1}", ex.Message, messageString));
+                    }
+                }
+            }
+
+        }
+
+        #endregion
+
+        #region Action - Send message
         [Metadata("Send Message to Event Hub")]
         [Swashbuckle.Swagger.Annotations.SwaggerResponse(HttpStatusCode.BadRequest, "An exception occured", typeof(Exception))]
         [Swashbuckle.Swagger.Annotations.SwaggerResponse(System.Net.HttpStatusCode.Created)]
         [Route("SendString")]
         public HttpResponseMessage EventHubSend([Metadata("Connection String")]string connectionString, [FromBody]EventHubActionMessage input)
         {
-            try {
+            try
+            {
 
                 var client = EventHubClient.CreateFromConnectionString(connectionString, input.hubName);
                 string message = input.message;
@@ -90,181 +262,17 @@ namespace EventHubAPIApp.Controllers
                 client.Send(eventMessage);
                 return Request.CreateResponse(System.Net.HttpStatusCode.Created);
             }
-            catch(NullReferenceException ex)
+            catch (NullReferenceException ex)
             {
-                return Request.CreateErrorResponse(HttpStatusCode.BadRequest, @"The input recieved by the API was null.  This sometimes happens if the message in the Logic App is malformed.  Check the message to make sure there are no escape characters like '\'.", ex);
+                return Request.CreateErrorResponse(HttpStatusCode.BadRequest, @"The input Received by the API was null.  This sometimes happens if the message in the Logic App is malformed.  Check the message to make sure there are no escape characters like '\'.", ex);
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 return Request.CreateErrorResponse(HttpStatusCode.BadRequest, ex);
             }
         }
 
-        /// <summary>
-        /// Class for the InMemoryTriggerStore.  How the Logic App works, it will call the PUSH trigger endpoint with the triggerID and CallBackURL - it is the job
-        /// of the API App to then call the CallbackURL when an event happens.  I utilize this InMemoryTriggerStore to store the triggers I am watching, so that I don't
-        /// continue to spin up new listeners whenever the Logic App asks me to register a trigger.
-        /// 
-        /// If the API App was ever to reset or lose connection, I would know I need to register new Event Hub Listeners as the InMemoryTriggerStore would be empty.
-        /// </summary>
-        public class InMemoryTriggerStore
-        {
-            private static InMemoryTriggerStore instance;
-            private IDictionary<string, bool> _store;
-            private InMemoryTriggerStore()
-            {
-                _store = new Dictionary<string, bool>();
-            }
-
-            public IDictionary<string, bool> GetStore()
-            {
-                return _store;
-            }
-
-            public static InMemoryTriggerStore Instance
-            {
-                get
-                {
-                    if (instance == null)
-                    {
-                        instance = new InMemoryTriggerStore();
-                    }
-                    return instance;
-                }
-            }
-
-            /// <summary>
-            /// The method that registers Event Hub listeners and assigns them to a recieve event.  When I receive an event from the event hub listener, I trigger the callbackURL
-            /// </summary>
-            /// <param name="triggerId"></param>
-            /// <param name="triggerInput"></param>
-            /// <returns></returns>
-            public async Task RegisterTrigger(string triggerId, TriggerInput<EventHubInput, EventHubMessage> triggerInput)
-            {
-                var client = EventHubClient.CreateFromConnectionString(triggerInput.inputs.eventHubConnectionString, triggerInput.inputs.eventHubName);
-                EventHubConsumerGroup group = client.GetConsumerGroup(triggerInput.inputs.consumerGroup);
-                string[] partitions;
-                
-                //If they specified partitions, iterate over their list to only listen to the partitions they specified
-                if (!String.IsNullOrEmpty(triggerInput.inputs.eventHubPartitionList))
-                {
-                    partitions = triggerInput.inputs.eventHubPartitionList.Split(',');
-                }
-
-                //If they left it blank, create a list to listen to all partitions
-                else
-                {
-                    partitions = new string[client.GetRuntimeInformation().PartitionCount];
-                    for(int x = 0; x < partitions.Length; x++)
-                    {
-                        partitions[x] = x.ToString();
-                    }
-                }
-
-                //For ever partition I should listen to, create a thread with a listener on it
-                foreach (var p in partitions)
-                {
-                    p.Trim();
-                    var reciever = group.CreateReceiver(client.GetRuntimeInformation().PartitionIds[int.Parse(p)], DateTime.UtcNow);
-                    EventHubListener listener = new EventHubListener(reciever);
-
-                    //Register the event.  When I recieve a message, call the method to trigger the logic app
-                    listener.MessageReceived += (sender, e) => sendTrigger(sender, e, Runtime.FromAppSettings(), triggerInput.GetCallback());
-                    listener.StartListening();
-                }
-
-                //Register the triggerID in my store, so on subsequent checks from the logic app I don't spin up a new set of listeners
-                _store[triggerId] = true;
-            }
-
-            /// <summary>
-            /// Method to trigger the logic app.  Called when an event is recieved
-            /// </summary>
-            /// <param name="sender"></param>
-            /// <param name="e"></param>
-            /// <param name="runtime"></param>
-            /// <param name="clientTriggerCallback"></param>
-            private void sendTrigger(object sender, EventHubMessage e, Runtime runtime, ClientTriggerCallback<EventHubMessage> clientTriggerCallback)
-            {
-                clientTriggerCallback.InvokeAsync(runtime, e);
-            }
-        }
-
-        /// <summary>
-        /// Event Hub Listener class.  Keeps track of the receiver, and converts the message to a JOBject when recieved
-        /// </summary>
-        public class EventHubListener
-        {
-            private EventHubReceiver reciever;
-
-            public EventHubListener(EventHubReceiver reciever)
-            {
-                this.reciever = reciever;
-            }
-
-            public event EventHandler<EventHubMessage> MessageReceived;
-
-            public async Task StartListening()
-            {
-                while (true)
-                {
-                    try
-                    {
-                        var message = await reciever.ReceiveAsync(new TimeSpan(1, 0, 0));
-                        if (message != null)
-                        {
-                            var info = message.GetBytes();
-                            var msg = UnicodeEncoding.UTF8.GetString(info);
-                            MessageReceived(this, new EventHubMessage(JToken.Parse(msg)));
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Data model for objects used in app.
-        /// </summary>
-        public class EventHubMessage
-        {
-            public JToken body;
-            public EventHubMessage(JToken message)
-            {
-                this.body = message;
-            }
-        }
-
-        public class EventHubActionMessage
-        {
-            [Metadata("Event Hub Name", null)]
-            [Required(AllowEmptyStrings = false)]
-            public string hubName { get; set; }
-            [Metadata("Message Properties", "Object of Key/Value Properties for message", VisibilityType.Advanced)]
-            public string propertiesString { get; set; }
-            
-            [Metadata("Message", null)]
-            public string message { get; set; }
-            [Metadata("Partition Key", null, VisibilityType.Advanced)]
-            public string partitionKey { get; set; }
-
-        }
-
-
-
-        public class EventHubInput
-        {
-            [Metadata("Connection String")]
-            public string eventHubConnectionString { get; set; }
-            [Metadata("Partition List (comma separated)", "If left blank, will listen to all partitions", Visibility =VisibilityType.Advanced)]
-            public string eventHubPartitionList { get; set; }
-            [Metadata("Event Hub Name")]
-            public string eventHubName { get; set; }
-            [Metadata("Consumer Group")]
-            public string consumerGroup { get; set; }
-        }
+        #endregion
     }
 
 
