@@ -25,6 +25,7 @@ The trigger has the following inputs
 The trigger will return the message as `@{triggerBody()}`.  It is returned as a JToken, so you can parse through the JSON like `@{triggerBody()[0].eventtoken}`.
 
 Sample webhook subscription:
+```
 "triggers": {
     "EhubTrigger": {
         "conditions": [],
@@ -55,6 +56,7 @@ Sample webhook subscription:
         "type": "HttpWebhook"
     }
 }
+```
 
 ### Send Message Action ###
 The action has the following inputs.  It returns an [EventData object](https://msdn.microsoft.com/en-us/library/microsoft.servicebus.messaging.eventdata.aspx)
