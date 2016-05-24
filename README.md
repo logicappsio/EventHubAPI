@@ -10,22 +10,54 @@ Click the "Deploy to Azure" button above.  You can create new resources or refer
  * API App Host (this is the site behind the api app that this github code deploys to)
 
 ## API Documentation ##
-The app has one push trigger (Recieve Message) and one action (Send Message)
+The app has one webhook trigger (Receive Message) and one action (Send Message)
 
-### Recieve Message Push Trigger ###
-The push trigger has the following inputs
+### Receive Message webhook Trigger ###
+The trigger has the following inputs
 
 | Input | Description |
 | ----- | ----- |
 | Connection String | The connection string to access the event hub. |
 | Event Hub Name | Name of the event hub (e.g. `myeventhub` ) |
-| Consumer Group | Name of the consumer group the API App will subscribe to for messages |
+| Consumer Group | Name of the consumer group the API App will subscribe to for messages (uses default consumer group if left blank) |
 | Partition List *(optional)* | A comma separated list of the partitions to subscribe to (e.g. `1,2,3,4,6,7,8`).  Leaving blank will subscribe to all available partitions for the Event Hub. |
 
-The push trigger will return the message as `@triggers().outputs.body`.  It is returned as a JToken, so you can parse through the JSON like `@triggers().outputs.body.id`.
+The trigger will return the message as `@{triggerBody()}`.  It is returned as a JToken, so you can parse through the JSON like `@{triggerBody()[0].eventtoken}`.
+
+Sample webhook subscription:
+"triggers": {
+    "EhubTrigger": {
+        "conditions": [],
+        "inputs": {
+            "subscribe": {
+                "body": {
+                    "callbackUrl": "@{listCallbackUrl()}",
+                    "eventHubConnectionString": "Endpoint=sb://[namespace].servicebus.windows.net/;SharedAccessKeyName=[keyname];SharedAccessKey=[key]",
+                    "eventHubName": "[hubname]"
+                },
+                "headers": {
+                    "content-type": "application/json"
+                },
+                "method": "POST",
+                "uri": "https://eventhubapiapp.azurewebsites.net:443/Subscribe"
+            },
+            "unsubscribe": {
+                "body": {
+                    "callbackUrl": "@{listCallbackUrl()}"
+                },
+                "headers": {
+                    "content-type": "application/json"
+                },
+                "method": "POST",
+                "uri": "https://eventhubapiapp.azurewebsites.net:443/Unsubscribe"
+            }
+        },
+        "type": "HttpWebhook"
+    }
+}
 
 ### Send Message Action ###
-The push trigger has the following inputs.  It returns an [EventData object](https://msdn.microsoft.com/en-us/library/microsoft.servicebus.messaging.eventdata.aspx)
+The action has the following inputs.  It returns an [EventData object](https://msdn.microsoft.com/en-us/library/microsoft.servicebus.messaging.eventdata.aspx)
 
 | Input | Description |
 | ----- | ----- |
