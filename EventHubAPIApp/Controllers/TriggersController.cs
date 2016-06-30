@@ -161,7 +161,7 @@ namespace EventHubAPIApp.Controllers
                     ts.Cancel();
                 }
 
-                _store[callbackUrl] = null; // Drop references to EventhubListeners. They will be GC'ed later.
+                _store.Remove(callbackUrl);
             }
         }
 
